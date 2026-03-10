@@ -34,5 +34,5 @@ jobs:
           --document-name "AWS-RunShellScript" \
           --parameters 'commands=[
           "cd /opt/tv-adbuy-manager",
-          "sudo bash deploy/deploy.sh"
+          "sudo bash deploy.sh"
           ]'
