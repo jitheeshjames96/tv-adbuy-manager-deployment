@@ -1,0 +1,144 @@
+name: tv-adbuy-manager
+
+services:
+  proxy:
+    image: traefik:v3.2.3
+    command:
+      - --providers.docker
+      - --entrypoints.web.address=:80
+    ports:
+      - '80:80'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - container-network
+    labels:
+      - traefik.http.middlewares.errorpage.errors.status=501-599
+      - traefik.http.middlewares.errorpage.errors.service=fallback@docker
+      - traefik.http.middlewares.errorpage.errors.query=/
+    deploy:
+      restart_policy:
+        condition: always
+      resources:
+        limits:
+          cpus: '0.5' # 12.5% of CPU (1/8 of the total available CPU)
+          memory: 128M
+        reservations:
+          cpus: '0.25' # Reserve 6.25% CPU
+          memory: 64M
+
+  mysql_db:
+    image: mysql:8.0
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - '3306:3306'
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DB}
+    networks:
+      - container-network
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-u', 'root', '-p${MYSQL_PASSWORD}']
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 10s
+    deploy:
+      restart_policy:
+        condition: always
+      resources:
+        limits:
+          cpus: '1.0' # 25% of total CPU (1 full vCPU)
+          memory: 2G
+        reservations:
+          cpus: '0.5' # Reserve 12.5% CPU
+          memory: 1G
+
+  fullstack:
+    depends_on:
+      mysql_db:
+        condition: service_healthy
+        restart: true
+    image: tv-adbuy-manager-fullstack:v0.6
+    environment:
+      MYSQL_HOST: ${MYSQL_HOST}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DB: ${MYSQL_DB}
+      ACCESS_TOKEN_SECRET: ${ACCESS_TOKEN_SECRET}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
+      ACCESS_TOKEN_EXPIRY: 8h
+      REFRESH_TOKEN_EXPIRY: 7d
+      AZURE_STORAGE_ACCOUNT_URL: ${AZURE_STORAGE_ACCOUNT_URL}
+      AZURE_SAS_TOKEN: ${AZURE_SAS_TOKEN}
+      AZURE_MEDIA_INVOICE_CONTAINER: ${AZURE_MEDIA_INVOICE_CONTAINER}
+      EMAIL_RECIPIENTS: ${EMAIL_RECIPIENTS}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+      SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL}
+      SENDGRID_TEMPLATE_ID: ${SENDGRID_TEMPLATE_ID}
+      SENDGRID_FAILURE_TEMPLATE_ID: ${SENDGRID_FAILURE_TEMPLATE_ID}
+    labels:
+      - traefik.http.routers.fullstack.rule=Host(`${DOMAIN_URL}`)
+      - traefik.http.services.fullstack.loadbalancer.server.port=3000
+      - traefik.http.routers.fullstack.middlewares=errorpage@docker
+      - traefik.http.routers.fullstack.priority=100
+    volumes:
+      - upload-files:/data
+      - ./.env:/usr/local/app/.env
+      - fallback-pages:/fallback
+      - nginx-config:/nginx
+      - logs:/app/logs
+    networks:
+      - container-network
+    deploy:
+      restart_policy:
+        condition: always
+      resources:
+        limits:
+          cpus: '1.5' # 37.5% of total CPU (1.5 vCPUs)
+          memory: 4G
+        reservations:
+          cpus: '1.0' # Reserve 25% CPU (1 full vCPU)
+          memory: 2G
+
+  fallback:
+    image: nginx:alpine
+    labels:
+      - 'traefik.enable=true'
+      - traefik.http.routers.fallback.rule=Host(`${DOMAIN_URL}`)
+      - traefik.http.services.fallback.loadbalancer.server.port=80
+      - traefik.http.routers.fallback.priority=10
+    networks:
+      - container-network
+    depends_on:
+      - fullstack
+    volumes:
+      - fallback-pages:/usr/share/nginx/html
+      - nginx-config:/etc/nginx/conf.d
+    deploy:
+      restart_policy:
+        condition: always
+      resources:
+        limits:
+          cpus: '0.2' # 5% of CPU
+          memory: 64M
+        reservations:
+          cpus: '0.1' # Reserve 2.5% CPU
+          memory: 32M
+
+volumes:
+  mysql-data:
+    name: tv-adbuy-manager-mysql-data
+  upload-files:
+    name: tv-adbuy-manager-files
+  fallback-pages:
+    name: tv-adbuy-manager-fallback
+  nginx-config:
+    name: tv-adbuy-manager-nginx-config
+  logs:
+    name: tv-adbuy-manager-logs
+
+networks:
+  container-network:
+    name: tv-adbuy-manager-network
