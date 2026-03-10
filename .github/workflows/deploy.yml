@@ -1,50 +1,38 @@
-name: Deploy TV Adbuy Manager
+name: Deploy
+
+on:
+  push:
+    branches: [ main ]
 
 jobs:
 
-  prepare:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Validate artifacts
-        run: |
-          ls -lh compose-prod.yml
-          ls -lh tvadbuymanager_v0.6.tar.gz
-
   deploy:
 
-    needs: prepare
     runs-on: ubuntu-latest
 
-    environment: production   # <-- THIS CREATES APPROVAL PAUSE
+    environment: production   # approval gate
+
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
 
-      - name: Checkout repo
-        uses: actions/checkout@v4
+    - name: Checkout repo
+      uses: actions/checkout@v4
 
-      - name: Copy files to EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.CLIENT_HOST }}
-          username: ubuntu
-          key: ${{ secrets.CLIENT_SSH_KEY }}
-          source: |
-            compose-prod.yml
-            .env
-            tvadbuymanager_v0.6.tar.gz
-            deploy/deploy.sh
-          target: /opt/tv-adbuy-manager/
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Run deployment
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.CLIENT_HOST }}
-          username: ubuntu
-          key: ${{ secrets.CLIENT_SSH_KEY }}
-          script: |
-            cd /opt/tv-adbuy-manager
-            sudo bash deploy/deploy.sh
+    - name: Deploy via SSM
+      run: |
+        aws ssm send-command \
+          --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
+          --document-name "AWS-RunShellScript" \
+          --parameters 'commands=[
+          "cd /opt/tv-adbuy-manager",
+          "sudo bash deploy/deploy.sh"
+          ]'
