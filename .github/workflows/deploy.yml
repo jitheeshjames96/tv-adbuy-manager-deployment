@@ -1,10 +1,5 @@
 name: Deploy TV Adbuy Manager
 
-on:
-  push:
-    branches:
-      - main
-
 jobs:
 
   prepare:
