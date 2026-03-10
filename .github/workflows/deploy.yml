@@ -1,16 +1,14 @@
-name: Deploy
+name: Deploy TV Adbuy Manager
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
-
   deploy:
-
     runs-on: ubuntu-latest
-
-    environment: production   # approval gate
+    environment: production
 
     permissions:
       id-token: write
@@ -18,21 +16,31 @@ jobs:
 
     steps:
 
-    - name: Checkout repo
-      uses: actions/checkout@v4
+      - name: Checkout Repo
+        uses: actions/checkout@v4
 
-    - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-        aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-    - name: Deploy via SSM
-      run: |
-        aws ssm send-command \
+      - name: Upload compose file
+        run: |
+          CONTENT=$(base64 compose-prod.yml)
+
+          aws ssm send-command \
           --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
           --document-name "AWS-RunShellScript" \
-          --parameters 'commands=[
-          "cd /opt/tv-adbuy-manager",
-          "sudo bash deploy.sh"
-          ]'
+          --parameters commands="[
+          \"echo $CONTENT | base64 -d | sudo tee /opt/tv-adbuy-manager/compose-prod.yml\"
+          ]"
+
+      - name: Run Deployment Script
+        run: |
+          aws ssm send-command \
+          --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
+          --document-name "AWS-RunShellScript" \
+          --parameters commands="[
+          \"sudo bash /opt/tv-adbuy-manager/deploy.sh\"
+          ]"
